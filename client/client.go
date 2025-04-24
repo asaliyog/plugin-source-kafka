@@ -1,11 +1,13 @@
 package client
 
 import (
+	"fmt"
+	"os"
+	"time"
+
 	"github.com/Shopify/sarama"
 	"github.com/cloudquery/plugin-sdk/v4/schema"
 	"github.com/rs/zerolog"
-	"fmt"
-	"time"
 )
 
 type Client struct {
@@ -15,7 +17,10 @@ type Client struct {
 }
 
 func New(logger zerolog.Logger) (schema.ClientMeta, error) {
-	logger.Info().Msg("Starting to create new Kafka client")
+	// Create a more verbose logger that writes to stdout
+	logger = zerolog.New(os.Stdout).With().Timestamp().Logger().Level(zerolog.DebugLevel)
+	
+	logger.Info().Msg("=== Starting to create new Kafka client ===")
 	
 	config := sarama.NewConfig()
 	logger.Debug().Msg("Created new Sarama config")
@@ -67,6 +72,7 @@ func New(logger zerolog.Logger) (schema.ClientMeta, error) {
 		return nil, fmt.Errorf("failed to verify Kafka connection: %w", err)
 	}
 
+	logger.Info().Msg("=== Kafka client created successfully ===")
 	return client, nil
 }
 
@@ -86,7 +92,7 @@ func (c *Client) Close() error {
 		return fmt.Errorf("Kafka consumer is nil")
 	}
 	
-	c.Logger.Info().Msg("Starting to close Kafka consumer")
+	c.Logger.Info().Msg("=== Starting to close Kafka consumer ===")
 	err := c.Kafka.Close()
 	if err != nil {
 		c.Logger.Error().Err(err).Msg("Error while closing Kafka consumer")

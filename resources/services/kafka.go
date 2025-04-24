@@ -125,7 +125,7 @@ func consumeMessages(ctx context.Context, consumer sarama.PartitionConsumer, log
 
 func FetchKernelMessages(ctx context.Context, meta schema.ClientMeta, parent *schema.Resource, res chan<- interface{}) error {
 	c := meta.(*client.Client)
-	c.Logger.Info().Msg("Starting to consume from clean_osquery_kernel topic")
+	c.Logger.Info().Msg("=== Starting to consume from clean_osquery_kernel topic ===")
 	
 	if c.Kafka == nil {
 		c.Logger.Error().Msg("Kafka client is nil")
@@ -156,7 +156,7 @@ func FetchKernelMessages(ctx context.Context, meta schema.ClientMeta, parent *sc
 	
 	// Start a consumer for each partition
 	for _, partition := range partitions {
-		c.Logger.Debug().Str("topic", topic).Int32("partition", partition).Msg("Starting consumer for partition")
+		c.Logger.Info().Str("topic", topic).Int32("partition", partition).Msg("Starting consumer for partition")
 		
 		consumer, err := c.Kafka.ConsumePartition(topic, partition, sarama.OffsetOldest)
 		if err != nil {
@@ -168,7 +168,7 @@ func FetchKernelMessages(ctx context.Context, meta schema.ClientMeta, parent *sc
 		// Start a goroutine to consume messages from this partition
 		go func(p int32, cons sarama.PartitionConsumer) {
 			defer func() {
-				c.Logger.Debug().Str("topic", topic).Int32("partition", p).Msg("Closing partition consumer")
+				c.Logger.Info().Str("topic", topic).Int32("partition", p).Msg("Closing partition consumer")
 				cons.Close()
 			}()
 
@@ -176,17 +176,19 @@ func FetchKernelMessages(ctx context.Context, meta schema.ClientMeta, parent *sc
 			retryCount := 0
 			lastMessageTime := time.Now()
 
+			c.Logger.Info().Str("topic", topic).Int32("partition", p).Msg("Setting up message consumption channels")
 			messages, errors := consumeMessages(ctx, cons, c.Logger, fmt.Sprintf("%s-partition-%d", topic, p))
 			if messages == nil || errors == nil {
 				errChan <- fmt.Errorf("failed to set up message consumption channels for partition %d", p)
 				return
 			}
 
+			c.Logger.Info().Str("topic", topic).Int32("partition", p).Msg("Entering message processing loop")
 			for {
 				select {
 				case msg, ok := <-messages:
 					if !ok {
-						c.Logger.Debug().Str("topic", topic).Int32("partition", p).Msg("Message channel closed")
+						c.Logger.Info().Str("topic", topic).Int32("partition", p).Msg("Message channel closed")
 						return
 					}
 					if msg == nil {
@@ -195,14 +197,14 @@ func FetchKernelMessages(ctx context.Context, meta schema.ClientMeta, parent *sc
 							return
 						}
 						retryCount++
-						c.Logger.Debug().Str("topic", topic).Int32("partition", p).Int("retry_count", retryCount).Msg("No message received, retrying")
+						c.Logger.Info().Str("topic", topic).Int32("partition", p).Int("retry_count", retryCount).Msg("No message received, retrying")
 						continue
 					}
 					retryCount = 0
 					lastMessageTime = time.Now()
 					messageCount++
 
-					c.Logger.Debug().Str("topic", topic).Int32("partition", p).
+					c.Logger.Info().Str("topic", topic).Int32("partition", p).
 						Int64("offset", msg.Offset).
 						Str("key", string(msg.Key)).
 						Msg("Processing raw message")
@@ -215,7 +217,7 @@ func FetchKernelMessages(ctx context.Context, meta schema.ClientMeta, parent *sc
 							Msg("Failed to unmarshal kernel message")
 						continue
 					}
-					c.Logger.Debug().Str("topic", topic).Int32("partition", p).
+					c.Logger.Info().Str("topic", topic).Int32("partition", p).
 						Interface("message", kernelMsg).
 						Msg("Successfully processed kernel message")
 					res <- kernelMsg
@@ -228,7 +230,7 @@ func FetchKernelMessages(ctx context.Context, meta schema.ClientMeta, parent *sc
 
 				case err, ok := <-errors:
 					if !ok {
-						c.Logger.Debug().Str("topic", topic).Int32("partition", p).Msg("Error channel closed")
+						c.Logger.Info().Str("topic", topic).Int32("partition", p).Msg("Error channel closed")
 						return
 					}
 					if err != nil {
@@ -268,6 +270,7 @@ func FetchKernelMessages(ctx context.Context, meta schema.ClientMeta, parent *sc
 		}
 	}
 
+	c.Logger.Info().Msg("=== Completed consuming from clean_osquery_kernel topic ===")
 	return nil
 }
 
