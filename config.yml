@@ -1,0 +1,16 @@
+kind: source
+spec:
+  name: kafka
+  path: ./kafka-plugin
+  version: v1.0.0
+  destinations: ["sqlite"] # or any other supported destination
+  tables: ["clean_osquery_kernel", "clean_osquery_packages", "clean_osquery_os"]
+  spec:
+---
+kind: destination
+spec:
+  name: sqlite # or your preferred destination
+  path: cloudquery/sqlite
+  version: v2.2.0
+  spec:
+    connection_string: ./db.sqlite
