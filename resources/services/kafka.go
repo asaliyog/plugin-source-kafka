@@ -4,36 +4,56 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	"github.com/Shopify/sarama"
+	"github.com/apache/arrow/go/v14/arrow"
 	"github.com/cloudquery/plugin-sdk/v4/schema"
 	"github.com/cloudquery/plugin-sdk/v4/transformers"
 	"github.com/hermanschaaf/cq-source-xkcd/client"
 	"github.com/rs/zerolog"
 )
 
+var (
+	// Global counter for auto-incrementing IDs
+	kernelIDCounter    int64
+	packagesIDCounter  int64
+	osIDCounter       int64
+)
+
+// AutoIncrementResolver returns a resolver that auto-increments a counter
+func AutoIncrementResolver(counter *int64) schema.ColumnResolver {
+	return func(ctx context.Context, meta schema.ClientMeta, resource *schema.Resource, c schema.Column) error {
+		val := atomic.AddInt64(counter, 1)
+		return resource.Set(c.Name, val)
+	}
+}
+
 type KernelMessage struct {
-	Arguments   string `json:"arguments"`
-	Version     string `json:"version"`
-	InstanceID  string `json:"instance_id"`
+	Arguments   string    `json:"arguments"`
+	Version     string    `json:"version"`
+	InstanceID  string    `json:"instance_id"`
+	ProcessedAt time.Time `json:"processed_at"`
 }
 
 type PackagesMessage struct {
-	Arch        string `json:"arch"`
-	Name        string `json:"name"`
-	Release     string `json:"release"`
-	Version     string `json:"version"`
-	InstanceID  string `json:"instance_id"`
+	Arch        string    `json:"arch"`
+	Name        string    `json:"name"`
+	Release     string    `json:"release"`
+	Version     string    `json:"version"`
+	InstanceID  string    `json:"instance_id"`
+	ProcessedAt time.Time `json:"processed_at"`
 }
 
 type OSMessage struct {
-	Build       string `json:"build"`
-	Codename    string `json:"codename"`
-	Platform    string `json:"platform"`
-	PlatformLike string `json:"platform_like"`
-	Version     string `json:"version"`
-	InstanceID  string `json:"instance_id"`
+	Build       string    `json:"build"`
+	Codename    string    `json:"codename"`
+	Platform    string    `json:"platform"`
+	PlatformLike string   `json:"platform_like"`
+	Version     string    `json:"version"`
+	InstanceID  string    `json:"instance_id"`
+	ProcessedAt time.Time `json:"processed_at"`
 }
 
 func KernelTable() *schema.Table {
@@ -42,6 +62,36 @@ func KernelTable() *schema.Table {
 		Resolver:  FetchKernelMessages,
 		Transform: transformers.TransformWithStruct(&KernelMessage{}),
 		Description: "Kernel information from osquery",
+		Columns: []schema.Column{
+			{
+				Name:        "id",
+				Type:        arrow.PrimitiveTypes.Int64,
+				Resolver:    AutoIncrementResolver(&kernelIDCounter),
+				PrimaryKey:  true,
+				Description: "Auto-incrementing primary key",
+			},
+			{
+				Name:        "processed_at",
+				Type:        arrow.FixedWidthTypes.Timestamp_us,
+				Resolver:    schema.PathResolver("ProcessedAt"),
+				Description: "When the message was processed",
+			},
+			{
+				Name:     "instance_id",
+				Type:     arrow.BinaryTypes.String,
+				Resolver: schema.PathResolver("InstanceID"),
+			},
+			{
+				Name:     "arguments",
+				Type:     arrow.BinaryTypes.String,
+				Resolver: schema.PathResolver("Arguments"),
+			},
+			{
+				Name:     "version",
+				Type:     arrow.BinaryTypes.String,
+				Resolver: schema.PathResolver("Version"),
+			},
+		},
 	}
 }
 
@@ -51,6 +101,46 @@ func PackagesTable() *schema.Table {
 		Resolver:  FetchPackagesMessages,
 		Transform: transformers.TransformWithStruct(&PackagesMessage{}),
 		Description: "Package information from osquery",
+		Columns: []schema.Column{
+			{
+				Name:        "id",
+				Type:        arrow.PrimitiveTypes.Int64,
+				Resolver:    AutoIncrementResolver(&packagesIDCounter),
+				PrimaryKey:  true,
+				Description: "Auto-incrementing primary key",
+			},
+			{
+				Name:        "processed_at",
+				Type:        arrow.FixedWidthTypes.Timestamp_us,
+				Resolver:    schema.PathResolver("ProcessedAt"),
+				Description: "When the message was processed",
+			},
+			{
+				Name:     "instance_id",
+				Type:     arrow.BinaryTypes.String,
+				Resolver: schema.PathResolver("InstanceID"),
+			},
+			{
+				Name:     "name",
+				Type:     arrow.BinaryTypes.String,
+				Resolver: schema.PathResolver("Name"),
+			},
+			{
+				Name:     "version",
+				Type:     arrow.BinaryTypes.String,
+				Resolver: schema.PathResolver("Version"),
+			},
+			{
+				Name:     "release",
+				Type:     arrow.BinaryTypes.String,
+				Resolver: schema.PathResolver("Release"),
+			},
+			{
+				Name:     "arch",
+				Type:     arrow.BinaryTypes.String,
+				Resolver: schema.PathResolver("Arch"),
+			},
+		},
 	}
 }
 
@@ -60,6 +150,51 @@ func OSTable() *schema.Table {
 		Resolver:  FetchOSMessages,
 		Transform: transformers.TransformWithStruct(&OSMessage{}),
 		Description: "OS information from osquery",
+		Columns: []schema.Column{
+			{
+				Name:        "id",
+				Type:        arrow.PrimitiveTypes.Int64,
+				Resolver:    AutoIncrementResolver(&osIDCounter),
+				PrimaryKey:  true,
+				Description: "Auto-incrementing primary key",
+			},
+			{
+				Name:        "processed_at",
+				Type:        arrow.FixedWidthTypes.Timestamp_us,
+				Resolver:    schema.PathResolver("ProcessedAt"),
+				Description: "When the message was processed",
+			},
+			{
+				Name:     "instance_id",
+				Type:     arrow.BinaryTypes.String,
+				Resolver: schema.PathResolver("InstanceID"),
+			},
+			{
+				Name:     "build",
+				Type:     arrow.BinaryTypes.String,
+				Resolver: schema.PathResolver("Build"),
+			},
+			{
+				Name:     "codename",
+				Type:     arrow.BinaryTypes.String,
+				Resolver: schema.PathResolver("Codename"),
+			},
+			{
+				Name:     "platform",
+				Type:     arrow.BinaryTypes.String,
+				Resolver: schema.PathResolver("Platform"),
+			},
+			{
+				Name:     "platform_like",
+				Type:     arrow.BinaryTypes.String,
+				Resolver: schema.PathResolver("PlatformLike"),
+			},
+			{
+				Name:     "version",
+				Type:     arrow.BinaryTypes.String,
+				Resolver: schema.PathResolver("Version"),
+			},
+		},
 	}
 }
 
@@ -216,9 +351,22 @@ func FetchKernelMessages(ctx context.Context, meta schema.ClientMeta, parent *sc
 							Msg("Failed to unmarshal kernel message")
 						continue
 					}
+
+					// Set the processed timestamp
+					kernelMsg.ProcessedAt = time.Now()
+
+					// Log the parsed message
+					c.Logger.Info().Str("topic", topic).Int32("partition", p).
+						Str("instance_id", kernelMsg.InstanceID).
+						Str("version", kernelMsg.Version).
+						Str("arguments", kernelMsg.Arguments).
+						Time("processed_at", kernelMsg.ProcessedAt).
+						Msg("Successfully parsed kernel message")
+
+					// Send to result channel
 					c.Logger.Info().Str("topic", topic).Int32("partition", p).
 						Interface("message", kernelMsg).
-						Msg("Successfully processed kernel message")
+						Msg("Sending message to result channel")
 					res <- kernelMsg
 
 					if messageCount%100 == 0 {
