@@ -4,6 +4,7 @@ import (
 	"github.com/Shopify/sarama"
 	"github.com/cloudquery/plugin-sdk/v4/schema"
 	"github.com/rs/zerolog"
+	"fmt"
 	"time"
 )
 
@@ -34,7 +35,7 @@ func New(logger zerolog.Logger) (schema.ClientMeta, error) {
 	consumer, err := sarama.NewConsumer([]string{brokerAddr}, config)
 	if err != nil {
 		logger.Error().Err(err).Str("broker", brokerAddr).Msg("Failed to create Kafka consumer")
-		return nil, err
+		return nil, fmt.Errorf("failed to create Kafka consumer: %w", err)
 	}
 
 	logger.Info().Str("broker", brokerAddr).Msg("Successfully connected to Kafka broker")
@@ -43,22 +44,48 @@ func New(logger zerolog.Logger) (schema.ClientMeta, error) {
 	topics, err := consumer.Topics()
 	if err != nil {
 		logger.Error().Err(err).Msg("Failed to list topics")
+		consumer.Close() // Close consumer if we can't list topics
+		return nil, fmt.Errorf("failed to list topics: %w", err)
+	}
+	
+	if len(topics) == 0 {
+		logger.Warn().Msg("No topics found in Kafka broker")
 	} else {
 		logger.Info().Strs("available_topics", topics).Msg("Successfully listed available topics")
 	}
 
-	return &Client{
+	client := &Client{
 		Kafka:  consumer,
 		Logger: logger,
-	}, nil
+	}
+
+	// Verify the client is working by trying to list topics again
+	_, err = client.Kafka.Topics()
+	if err != nil {
+		logger.Error().Err(err).Msg("Failed to verify Kafka connection")
+		consumer.Close()
+		return nil, fmt.Errorf("failed to verify Kafka connection: %w", err)
+	}
+
+	return client, nil
 }
 
 func (c *Client) ID() string {
+	if c == nil {
+		return "nil-client"
+	}
 	c.Logger.Debug().Msg("Getting client ID")
 	return "kafka"
 }
 
 func (c *Client) Close() error {
+	if c == nil {
+		return fmt.Errorf("client is nil")
+	}
+	if c.Kafka == nil {
+		return fmt.Errorf("Kafka consumer is nil")
+	}
+	
 	c.Logger.Info().Msg("Starting to close Kafka consumer")
 	err := c.Kafka.Close()
 	if err != nil {
