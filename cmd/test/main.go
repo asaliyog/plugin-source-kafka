@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/hermanschaaf/cq-source-xkcd/client"
 	"github.com/hermanschaaf/cq-source-xkcd/resources/services"
@@ -13,7 +14,7 @@ import (
 )
 
 func main() {
-	// Create logger with more detailed output
+	// Create logger with debug level
 	logger := zerolog.New(os.Stdout).With().Timestamp().Logger().Level(zerolog.DebugLevel)
 
 	// Create Kafka client
@@ -25,8 +26,8 @@ func main() {
 	defer kafkaClient.(*client.Client).Close()
 	logger.Info().Msg("Kafka client created successfully")
 
-	// Create context that can be cancelled
-	ctx, cancel := context.WithCancel(context.Background())
+	// Create context with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
 	// Handle graceful shutdown
@@ -42,9 +43,9 @@ func main() {
 	logger.Info().Msg("Starting to consume messages...")
 
 	// Create channels for each topic
-	kernelChan := make(chan interface{})
-	packagesChan := make(chan interface{})
-	osChan := make(chan interface{})
+	kernelChan := make(chan interface{}, 100)  // Buffered channels to prevent blocking
+	packagesChan := make(chan interface{}, 100)
+	osChan := make(chan interface{}, 100)
 
 	// Start goroutines for each topic
 	go func() {
@@ -70,16 +71,20 @@ func main() {
 
 	// Process messages
 	logger.Info().Msg("Entering message processing loop...")
+	messageCount := 0
 	for {
 		select {
 		case msg := <-kernelChan:
-			logger.Info().Interface("message", msg).Msg("Received kernel message")
+			messageCount++
+			logger.Info().Interface("message", msg).Int("total_messages", messageCount).Msg("Received kernel message")
 		case msg := <-packagesChan:
-			logger.Info().Interface("message", msg).Msg("Received packages message")
+			messageCount++
+			logger.Info().Interface("message", msg).Int("total_messages", messageCount).Msg("Received packages message")
 		case msg := <-osChan:
-			logger.Info().Interface("message", msg).Msg("Received OS message")
+			messageCount++
+			logger.Info().Interface("message", msg).Int("total_messages", messageCount).Msg("Received OS message")
 		case <-ctx.Done():
-			logger.Info().Msg("Shutting down...")
+			logger.Info().Int("total_messages", messageCount).Msg("Context cancelled or timeout reached")
 			return
 		}
 	}

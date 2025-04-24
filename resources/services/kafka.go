@@ -64,30 +64,43 @@ func OSTable() *schema.Table {
 }
 
 const (
-	messageTimeout = 10 * time.Second  // Time to wait for new messages
+	messageTimeout = 30 * time.Second  // Increased timeout to 30 seconds
 	maxRetries    = 3                 // Number of times to retry if no messages
 )
 
 func consumeMessages(ctx context.Context, consumer sarama.PartitionConsumer, logger zerolog.Logger, topic string) (<-chan *sarama.ConsumerMessage, <-chan error) {
+	logger.Debug().Str("topic", topic).Msg("Starting to set up message consumption channels")
+	
 	messages := make(chan *sarama.ConsumerMessage)
 	errors := make(chan error)
 
 	go func() {
-		defer close(messages)
-		defer close(errors)
+		defer func() {
+			logger.Debug().Str("topic", topic).Msg("Closing message channels")
+			close(messages)
+			close(errors)
+		}()
 
+		logger.Debug().Str("topic", topic).Msg("Starting message consumption loop")
 		for {
 			select {
 			case msg := <-consumer.Messages():
+				logger.Debug().Str("topic", topic).
+					Int64("offset", msg.Offset).
+					Int("partition", int(msg.Partition)).
+					Msg("Received message from Kafka")
 				messages <- msg
 			case err := <-consumer.Errors():
+				logger.Error().Err(err).Str("topic", topic).Msg("Error consuming message")
 				errors <- err
 			case <-ctx.Done():
+				logger.Debug().Str("topic", topic).Msg("Context cancelled, stopping message consumption")
 				return
 			}
 		}
 	}()
 
+	logger.Debug().Str("topic", topic).Msg("Message consumption channels set up successfully")
 	return messages, errors
 }
 
@@ -95,20 +108,34 @@ func FetchKernelMessages(ctx context.Context, meta schema.ClientMeta, parent *sc
 	c := meta.(*client.Client)
 	c.Logger.Info().Msg("Starting to consume from clean_osquery_kernel topic")
 	
+	// List available topics
+	topics, err := c.Kafka.Topics()
+	if err != nil {
+		c.Logger.Error().Err(err).Msg("Failed to list topics")
+	} else {
+		c.Logger.Info().Strs("available_topics", topics).Msg("Available Kafka topics")
+	}
+	
+	c.Logger.Debug().Msg("Attempting to create consumer for clean_osquery_kernel topic")
 	consumer, err := c.Kafka.ConsumePartition("clean_osquery_kernel", 0, sarama.OffsetOldest)
 	if err != nil {
 		c.Logger.Error().Err(err).Msg("Failed to create consumer for clean_osquery_kernel")
 		return fmt.Errorf("failed to create consumer for clean_osquery_kernel: %w", err)
 	}
-	defer consumer.Close()
+	defer func() {
+		c.Logger.Debug().Msg("Closing consumer for clean_osquery_kernel")
+		consumer.Close()
+	}()
 
 	c.Logger.Info().Msg("Successfully created consumer for clean_osquery_kernel")
 	messageCount := 0
 	retryCount := 0
 	lastMessageTime := time.Now()
 
+	c.Logger.Debug().Msg("Setting up message consumption channels")
 	messages, errors := consumeMessages(ctx, consumer, c.Logger, "clean_osquery_kernel")
 
+	c.Logger.Info().Msg("Entering main message processing loop")
 	for {
 		select {
 		case msg := <-messages:
@@ -118,17 +145,27 @@ func FetchKernelMessages(ctx context.Context, meta schema.ClientMeta, parent *sc
 					return nil
 				}
 				retryCount++
+				c.Logger.Debug().Int("retry_count", retryCount).Msg("No message received, retrying")
 				continue
 			}
 			retryCount = 0
 			lastMessageTime = time.Now()
 			messageCount++
 
+			c.Logger.Debug().Str("topic", "clean_osquery_kernel").
+				Int64("offset", msg.Offset).
+				Int("partition", int(msg.Partition)).
+				Str("key", string(msg.Key)).
+				Msg("Processing raw message")
+
 			var kernelMsg KernelMessage
 			if err := json.Unmarshal(msg.Value, &kernelMsg); err != nil {
-				c.Logger.Error().Err(err).Msg("Failed to unmarshal kernel message")
+				c.Logger.Error().Err(err).
+					Str("raw_value", string(msg.Value)).
+					Msg("Failed to unmarshal kernel message")
 				continue
 			}
+			c.Logger.Debug().Interface("message", kernelMsg).Msg("Successfully processed kernel message")
 			res <- kernelMsg
 
 			if messageCount%100 == 0 {
