@@ -13,15 +13,17 @@ import (
 )
 
 func main() {
-	// Create logger
-	logger := zerolog.New(os.Stdout).With().Timestamp().Logger()
+	// Create logger with more detailed output
+	logger := zerolog.New(os.Stdout).With().Timestamp().Logger().Level(zerolog.DebugLevel)
 
 	// Create Kafka client
+	logger.Info().Msg("Creating Kafka client...")
 	kafkaClient, err := client.New(logger)
 	if err != nil {
 		log.Fatalf("Failed to create Kafka client: %v", err)
 	}
-	defer kafkaClient.Close()
+	defer kafkaClient.(*client.Client).Close()
+	logger.Info().Msg("Kafka client created successfully")
 
 	// Create context that can be cancelled
 	ctx, cancel := context.WithCancel(context.Background())
@@ -46,24 +48,28 @@ func main() {
 
 	// Start goroutines for each topic
 	go func() {
+		logger.Info().Msg("Starting kernel messages consumer...")
 		if err := services.FetchKernelMessages(ctx, kafkaClient, nil, kernelChan); err != nil {
 			logger.Error().Err(err).Msg("Error fetching kernel messages")
 		}
 	}()
 
 	go func() {
+		logger.Info().Msg("Starting packages messages consumer...")
 		if err := services.FetchPackagesMessages(ctx, kafkaClient, nil, packagesChan); err != nil {
 			logger.Error().Err(err).Msg("Error fetching packages messages")
 		}
 	}()
 
 	go func() {
+		logger.Info().Msg("Starting OS messages consumer...")
 		if err := services.FetchOSMessages(ctx, kafkaClient, nil, osChan); err != nil {
 			logger.Error().Err(err).Msg("Error fetching OS messages")
 		}
 	}()
 
 	// Process messages
+	logger.Info().Msg("Entering message processing loop...")
 	for {
 		select {
 		case msg := <-kernelChan:
