@@ -14,8 +14,17 @@ import (
 )
 
 func main() {
+	// Create a file for logging
+	logFile, err := os.OpenFile("test.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+	if err != nil {
+		log.Fatalf("Failed to open log file: %v", err)
+	}
+
+	// Create a multi-writer to write to both file and stdout
+	multi := zerolog.MultiLevelWriter(os.Stdout, logFile)
+	
 	// Create logger with debug level
-	logger := zerolog.New(os.Stdout).With().Timestamp().Logger().Level(zerolog.DebugLevel)
+	logger := zerolog.New(multi).With().Timestamp().Logger().Level(zerolog.DebugLevel)
 
 	// Create Kafka client
 	logger.Info().Msg("Creating Kafka client...")
@@ -43,7 +52,7 @@ func main() {
 	logger.Info().Msg("Starting to consume messages...")
 
 	// Create channels for each topic
-	kernelChan := make(chan interface{}, 100)  // Buffered channels to prevent blocking
+	kernelChan := make(chan interface{}, 100)
 	packagesChan := make(chan interface{}, 100)
 	osChan := make(chan interface{}, 100)
 

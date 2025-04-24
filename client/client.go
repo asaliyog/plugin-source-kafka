@@ -17,8 +17,17 @@ type Client struct {
 }
 
 func New(logger zerolog.Logger) (schema.ClientMeta, error) {
-	// Create a more verbose logger that writes to stdout
-	logger = zerolog.New(os.Stdout).With().Timestamp().Logger().Level(zerolog.DebugLevel)
+	// Create a file for logging
+	logFile, err := os.OpenFile("kafka-plugin.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open log file: %w", err)
+	}
+
+	// Create a multi-writer to write to both file and stdout
+	multi := zerolog.MultiLevelWriter(os.Stdout, logFile)
+	
+	// Create a more verbose logger
+	logger = zerolog.New(multi).With().Timestamp().Logger().Level(zerolog.DebugLevel)
 	
 	logger.Info().Msg("=== Starting to create new Kafka client ===")
 	
